@@ -205,7 +205,7 @@
             // Process and display results
             function processResults(data, searchDomain) {
                 // Extract all domains from certificates
-                const allDomains = data.map(cert => cert.name_value.toLowerCase());
+                const allDomains = Array.from(new Set(data.flatMap(s => [s.common_name, ...s.name_value.split("\n")]))).sort();
                 
                 // Remove duplicates and sort alphabetically
                 const uniqueDomains = [...new Set(allDomains)]
