@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subdomain Finder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            background-color: #f8f9fa;
+        }
+        .header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        .domain-card {
+            transition: transform 0.2s;
+            margin-bottom: 1rem;
+        }
+        .domain-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .stats {
+            background-color: #e9ecef;
+            border-radius: 5px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            margin: 2rem 0;
+        }
+        .domain-list {
+            column-count: 1;
+        }
+        @media (min-width: 768px) {
+            .domain-list {
+                column-count: 2;
+            }
+        }
+        @media (min-width: 992px) {
+            .domain-list {
+                column-count: 3;
+            }
+        }
+        .footer {
+            margin-top: 3rem;
+            text-align: center;
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="display-5">Subdomain Finder</h1>
+            <p class="lead">Discover subdomains from Certificate Transparency logs</p>
+        </div>
+
+        <div class="row justify-content-center mb-4">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-body">
+                        <form id="domainForm">
+                            <div class="mb-3">
+                                <label for="domainInput" class="form-label">Domain Name</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="domainInput" placeholder="example.com" required>
+                                    <button class="btn btn-primary" type="submit">Find Subdomains</button>
+                                </div>
+                                <div class="form-text">Enter a domain name to find all its subdomains from certificate records.</div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading-spinner" id="loadingSpinner">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Fetching subdomains...</p>
+        </div>
+
+        <div id="resultsContainer" style="display: none;">
+            <div class="stats card mb-4" id="statsCard">
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-4">
+                            <h5>Unique Domains</h5>
+                            <p class="h3" id="domainCount">0</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Certificates</h5>
+                            <p class="h3" id="certCount">0</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h5>Wildcard Certs</h5>
+                            <p class="h3" id="wildcardCount">0</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="searchBox" placeholder="Filter domains...">
+                        <button class="btn btn-outline-secondary" id="clearBtn">Clear</button>
+                    </div>
+                </div>
+                <div class="col-md-6 text-md-end mt-3 mt-md-0">
+                    <button class="btn btn-success me-2" id="copyBtn">Copy All Domains</button>
+                    <button class="btn btn-outline-primary" id="downloadBtn">Download CSV</button>
+                </div>
+            </div>
+
+            <div class="domain-list" id="domainList">
+                <!-- Domains will be listed here -->
+            </div>
+        </div>
+
+        <div class="alert alert-danger" id="errorAlert" style="display: none;">
+            Error fetching data. Please try again.
+        </div>
+
+        <div class="footer">
+            <p>Data sourced from Certificate Transparency logs via crt.sh</p>
+            <p>This tool does not store any data and makes requests directly to crt.sh's public API.</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const domainForm = document.getElementById('domainForm');
+            const domainInput = document.getElementById('domainInput');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const errorAlert = document.getElementById('errorAlert');
+            const domainList = document.getElementById('domainList');
+            const searchBox = document.getElementById('searchBox');
+            const clearBtn = document.getElementById('clearBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const domainCount = document.getElementById('domainCount');
+            const certCount = document.getElementById('certCount');
+            const wildcardCount = document.getElementById('wildcardCount');
+
+            // Try to pre-fill domain if this page was loaded from a domain
+            try {
+                const currentDomain = window.location.hostname;
+                if (currentDomain && !['localhost', '127.0.0.1'].includes(currentDomain)) {
+                    const parts = currentDomain.split('.');
+                    if (parts.length >= 2) {
+                        domainInput.value = parts.slice(-2).join('.');
+                    }
+                }
+            } catch (e) {
+                console.error('Error getting hostname:', e);
+            }
+
+            // Form submission
+            domainForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const domain = domainInput.value.trim();
+                
+                if (!domain) {
+                    return;
+                }
+                
+                // Show loading, hide results and errors
+                loadingSpinner.style.display = 'block';
+                resultsContainer.style.display = 'none';
+                errorAlert.style.display = 'none';
+                domainList.innerHTML = '';
+                
+                fetchSubdomains(domain);
+            });
+
+            // Fetch subdomains from crt.sh
+            async function fetchSubdomains(domain) {
+                try {
+                    const response = await fetch(`https://crt.sh/json?q=${encodeURIComponent(domain)}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    processResults(data, domain);
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                    errorAlert.textContent = `Error: ${error.message}. Please try again.`;
+                    errorAlert.style.display = 'block';
+                    loadingSpinner.style.display = 'none';
+                }
+            }
+
+            // Process and display results
+            function processResults(data, searchDomain) {
+                // Extract all domains from certificates
+                const allDomains = data.map(cert => cert.name_value.toLowerCase());
+                
+                // Remove duplicates and sort alphabetically
+                const uniqueDomains = [...new Set(allDomains)]
+                    .filter(domain => domain.includes(searchDomain))
+                    .sort();
+                
+                if (uniqueDomains.length === 0) {
+                    errorAlert.textContent = `No domains found for ${searchDomain}`;
+                    errorAlert.style.display = 'block';
+                    loadingSpinner.style.display = 'none';
+                    return;
+                }
+                
+                // Count wildcard certificates
+                const wildcards = uniqueDomains.filter(d => d.includes('*.')).length;
+                
+                // Update stats
+                domainCount.textContent = uniqueDomains.length;
+                certCount.textContent = data.length;
+                wildcardCount.textContent = wildcards;
+                
+                // Clear and populate domain list
+                domainList.innerHTML = '';
+                
+                uniqueDomains.forEach(domain => {
+                    const card = document.createElement('div');
+                    card.className = 'domain-card card mb-2';
+                    
+                    const isWildcard = domain.includes('*.');
+                    const displayDomain = domain;
+                    const linkDomain = domain.replace('*.', '');
+                    
+                    card.innerHTML = `
+                        <div class="card-body py-2 px-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="domain-name ${isWildcard ? 'text-warning' : ''}">
+                                    ${displayDomain}
+                                </div>
+                                <div>
+                                    <a href="https://${linkDomain}" target="_blank" class="btn btn-sm btn-outline-primary">Visit</a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    domainList.appendChild(card);
+                });
+                
+                // Show results, hide loading
+                resultsContainer.style.display = 'block';
+                loadingSpinner.style.display = 'none';
+                
+                // Store domains for later use
+                resultsContainer.dataset.domains = JSON.stringify(uniqueDomains);
+            }
+
+            // Domain filtering
+            searchBox.addEventListener('input', function() {
+                const query = this.value.toLowerCase();
+                const cards = domainList.querySelectorAll('.domain-card');
+                
+                cards.forEach(card => {
+                    const domainName = card.querySelector('.domain-name').textContent.toLowerCase();
+                    card.style.display = domainName.includes(query) ? '' : 'none';
+                });
+            });
+            
+            // Clear search
+            clearBtn.addEventListener('click', function() {
+                searchBox.value = '';
+                searchBox.dispatchEvent(new Event('input'));
+            });
+            
+            // Copy all domains
+            copyBtn.addEventListener('click', function() {
+                const domains = JSON.parse(resultsContainer.dataset.domains || '[]');
+                
+                if (domains.length === 0) {
+                    return;
+                }
+                
+                navigator.clipboard.writeText(domains.join('\n'))
+                    .then(() => {
+                        const originalText = copyBtn.textContent;
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => {
+                            copyBtn.textContent = originalText;
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy: ', err);
+                        alert('Could not copy to clipboard. Please select and copy manually.');
+                    });
+            });
+            
+            // Download as CSV
+            downloadBtn.addEventListener('click', function() {
+                const domains = JSON.parse(resultsContainer.dataset.domains || '[]');
+                
+                if (domains.length === 0) {
+                    return;
+                }
+                
+                const csvContent = "data:text/csv;charset=utf-8," + domains.join('\n');
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `subdomains-${domainInput.value}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+        });
+    </script>
+</body>
+</html>
