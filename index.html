@@ -154,12 +154,10 @@
 
             // Try to pre-fill domain if this page was loaded from a domain
             try {
-                const currentDomain = window.location.hostname;
-                if (currentDomain && !['localhost', '127.0.0.1'].includes(currentDomain)) {
-                    const parts = currentDomain.split('.');
-                    if (parts.length >= 2) {
-                        domainInput.value = parts.slice(-2).join('.');
-                    }
+                const currentDomain = new URLSearchParams(window.location.search).get("domain");
+                if (currentDomain) {
+                    domainInput.value = currentDomain;
+                    domainForm.submit();
                 }
             } catch (e) {
                 console.error('Error getting hostname:', e);
