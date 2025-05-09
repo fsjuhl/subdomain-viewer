@@ -152,17 +152,6 @@
             const certCount = document.getElementById('certCount');
             const wildcardCount = document.getElementById('wildcardCount');
 
-            // Try to pre-fill domain if this page was loaded from a domain
-            try {
-                const currentDomain = new URLSearchParams(window.location.search).get("domain");
-                if (currentDomain) {
-                    domainInput.value = currentDomain;
-                    domainForm.submit();
-                }
-            } catch (e) {
-                console.error('Error getting hostname:', e);
-            }
-
             // Form submission
             domainForm.addEventListener('submit', function(event) {
                 event.preventDefault();
@@ -316,6 +305,16 @@
                 link.click();
                 document.body.removeChild(link);
             });
+
+            try {
+                const currentDomain = new URLSearchParams(window.location.search).get("domain");
+                if (currentDomain) {
+                    domainInput.value = currentDomain;
+                    domainForm.submit();
+                }
+            } catch (e) {
+                console.error('Error getting hostname:', e);
+            }
         });
     </script>
 </body>
