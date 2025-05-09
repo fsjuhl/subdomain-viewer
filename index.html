@@ -310,7 +310,13 @@
                 const currentDomain = new URLSearchParams(window.location.search).get("domain");
                 if (currentDomain) {
                     domainInput.value = currentDomain;
-                    domainForm.submit();
+
+                    loadingSpinner.style.display = 'block';
+                    resultsContainer.style.display = 'none';
+                    errorAlert.style.display = 'none';
+                    domainList.innerHTML = '';
+                    
+                    fetchSubdomains(currentDomain);
                 }
             } catch (e) {
                 console.error('Error getting hostname:', e);
